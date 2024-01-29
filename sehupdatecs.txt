@@ -1,0 +1,167 @@
+using System;
+using System.Collections;
+using Alliant.DAL.Core.Interfaces;
+using Alliant.DAL.Core;
+using Alliant.DataContracts;
+using Alliant.Global.HostAccessLibrary;
+using Microsoft.Practices.EnterpriseLibrary.Logging;
+using System.Collections.ObjectModel;
+using System.Collections.Generic;
+
+namespace Alliant.DAL.Core
+{
+    public sealed class SEGUpdate : ISEGUpdate
+    {
+        #region Private Member
+        #endregion
+
+        #region Public Static Methods
+        #endregion
+
+        #region Profile Public Methods
+        /// <summary>
+        /// UpdateSEGList
+        /// Date archive current SEG List, and create new SEGList
+        /// </summary>
+        /// <returns></returns>
+        ///<History>
+        /// History	:
+        /// DATE		BY				DESCRIPTION
+        /// --------------------------------------------------------------------------
+        /// 1/17/2013	Chris K         Created
+        /// 3/6/2013    Chris K         Updated output for SEG Name
+        ///
+        /// </History>
+        ///
+
+        public ResponseInfo UpdateSEGList(List<SEGInfo> mySEGInfo)
+        {
+            ResponseInfo response = new ResponseInfo();
+            response.IsValid = false;
+            string accountNumber = "0011795101";
+            string LetterName = "CK.SEGTEST.382";
+            string SEGOutput = "";
+            ArrayList Lines = new ArrayList();
+            string DELIM = "*";
+            try
+            {
+
+                HostConnect objHostConnect = new HostConnect();
+                objHostConnect._requestType = "FM";
+
+                // Delete File we are writing to
+                RepgenInfo fileMoveRepgen = new RepgenInfo();
+                fileMoveRepgen.RepgenName = CoreSystemUtil.RepgenNames.ISD_ALLIANTSYMCONN_382;
+                fileMoveRepgen.Rguserchar1 = "ISD.FILEUTILS.382";
+
+                fileMoveRepgen.Rguserchar2 = "LETTER";
+                fileMoveRepgen.Rguserchar3 = LetterName;
+                fileMoveRepgen.Rgusernum2 = 2; // Delete File
+
+                CoreSystemUtil.RunDemandRepGen(accountNumber, ref fileMoveRepgen);
+
+                // Loop through SEGList to Create Lines
+
+                //Create Headers
+                Lines.Add("# Member Group List  ");
+                Lines.Add("# Created 07/27/04      ");
+                Lines.Add("# Last Updated "+ DateTime.Now.ToString("d"));
+                Lines.Add("#       ");
+                Lines.Add("# Layout   ");
+                Lines.Add("# Comment Flag                 0000     ");
+                Lines.Add("# Member Group Number      0001 -- 0004 ");
+                Lines.Add("# Default Plastic Type     0006 -- 0007 ");
+                Lines.Add("# Member Group Name        0008 -- 0132 ");
+                Lines.Add("#       ");
+
+                //Loop Through SEGs
+                if (mySEGInfo != null)
+                {
+                    foreach (SEGInfo currSEG in mySEGInfo)
+                    {
+                        try
+                        {
+                            SEGOutput = (currSEG.Name != null ? currSEG.Name.Trim() : "") + " - " + (currSEG.EligibilityClass != E_SEGEligibilityClass.Unknown ? currSEG.EligibilityClass.ToString() : string.Empty);
+                            Lines.Add(" " + Convert.ToInt16(currSEG.Code).ToString("D4") + DELIM + currSEG.CardType.Number.ToString("D2") + SEGOutput.Trim());
+                        }
+                        catch (Exception ex)
+                        {
+                            LogEntry log = new LogEntry();
+                            log.Message = ex.ToString() + Environment.NewLine +
+                                          "SEG ID in error:"+currSEG.Id;
+
+                            log.Categories.Add(Category.Exception);
+
+                            log.Severity = System.Diagnostics.TraceEventType.Error;
+                            log.Priority = Priority.Highest;
+                            log.Title = "Alliant.DAL.Core.SEGUpdate.UpdateSEGList";
+                            Logger.Write(log);
+                        }
+                    }
+                }
+
+                //Write out each line for the letter file
+                string strFM = "~GLETTER~H" + LetterName;
+                foreach (string strLine in Lines)
+                {
+                    if (strLine.Length <= 132)
+                    {
+                        response = objHostConnect.ExecuteNonQuery(accountNumber, strFM + "~JLINE=" + strLine);
+                        // if (ErrorResult(FMresult))
+                        // {
+                        //     Exception e = new Exception(ResultString(FMresult));
+                        //     throw e;
+                        // }
+                    }
+                    else
+                    {
+                        string myLongString = strLine;
+                        while (myLongString != "")
+                        {
+                            string strOut = myLongString.Substring(0, myLongString.Length <= 132 ? myLongString.Length : 132);
+                            response = objHostConnect.ExecuteNonQuery(accountNumber, strFM + "~LNONEWLINE" + "~JLINE=" + strOut);
+                            //if (ErrorResult(FMresult))
+                            //{
+                            //    Exception e = new Exception(ResultString(FMresult));
+                            //    throw e;
+                            // }
+                            myLongString = myLongString.Length <= 132 ? "" : myLongString.Substring(132);
+                        }
+                    }
+                }
+
+                //Copy Letter file from LETTER to HELP
+                //Deleting Help when copying over
+                fileMoveRepgen.RepgenName = CoreSystemUtil.RepgenNames.ISD_ALLIANTSYMCONN_382;
+                fileMoveRepgen.Rguserchar1 = "ISD.FILEUTILS.382";
+
+                fileMoveRepgen.Rguserchar2 = "LETTER";
+                fileMoveRepgen.Rguserchar3 = LetterName;
+                fileMoveRepgen.Rguserchar4 = "HELP";
+                fileMoveRepgen.Rguserchar5 = "00020";
+                fileMoveRepgen.Rgusernum1 = 1;
+                fileMoveRepgen.Rgusernum2 = 1; // Copy with Delete
+
+                CoreSystemUtil.RunDemandRepGen(accountNumber, ref fileMoveRepgen);
+
+            }
+            catch (Exception ex)
+            {
+                LogEntry log = new LogEntry();
+                log.Message = ex.ToString() + Environment.NewLine +
+                              "Account Number: " + accountNumber;
+
+                log.Categories.Add(Category.Exception);
+
+                log.Severity = System.Diagnostics.TraceEventType.Error;
+                log.Priority = Priority.Highest;
+                log.Title = "Alliant.DAL.Core.SEGUpdate.UpdateSEGList";
+                Logger.Write(log);
+            }
+
+            return response;
+        }
+
+        #endregion
+    }
+}
